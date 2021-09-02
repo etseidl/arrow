@@ -32,6 +32,7 @@ Aggregations
    mean
    min_max
    mode
+   product
    stddev
    sum
    variance
@@ -104,6 +105,8 @@ variants which detect domain errors.
    log1p_checked
    log2
    log2_checked
+   logb
+   logb_checked
 
 Trigonometric Functions
 -----------------------
@@ -261,6 +264,7 @@ String Transforms
    ascii_rtrim
    ascii_rtrim_whitespace
    ascii_swapcase
+   ascii_title
    ascii_trim
    ascii_upper
    binary_length
@@ -280,6 +284,7 @@ String Transforms
    utf8_rtrim
    utf8_rtrim_whitespace
    utf8_swapcase
+   utf8_title
    utf8_trim
    utf8_upper
 

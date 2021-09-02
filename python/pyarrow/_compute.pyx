@@ -887,6 +887,23 @@ class ScalarAggregateOptions(_ScalarAggregateOptions):
         self._set_options(skip_nulls, min_count)
 
 
+cdef class _CountOptions(FunctionOptions):
+    def _set_options(self, mode):
+        if mode == 'only_valid':
+            self.wrapped.reset(new CCountOptions(CCountMode_ONLY_VALID))
+        elif mode == 'only_null':
+            self.wrapped.reset(new CCountOptions(CCountMode_ONLY_NULL))
+        elif mode == 'all':
+            self.wrapped.reset(new CCountOptions(CCountMode_ALL))
+        else:
+            raise ValueError(f'"{mode}" is not a valid mode')
+
+
+class CountOptions(_CountOptions):
+    def __init__(self, mode='only_valid'):
+        self._set_options(mode)
+
+
 cdef class _IndexOptions(FunctionOptions):
     def _set_options(self, Scalar scalar):
         self.wrapped.reset(new CIndexOptions(pyarrow_unwrap_scalar(scalar)))
@@ -964,6 +981,18 @@ class StrptimeOptions(_StrptimeOptions):
         self._set_options(format, unit)
 
 
+cdef class _StrftimeOptions(FunctionOptions):
+    def _set_options(self, format, locale):
+        self.wrapped.reset(
+            new CStrftimeOptions(tobytes(format), tobytes(locale))
+        )
+
+
+class StrftimeOptions(_StrftimeOptions):
+    def __init__(self, format="%Y-%m-%dT%H:%M:%SZ", locale="C"):
+        self._set_options(format, locale)
+
+
 cdef class _DayOfWeekOptions(FunctionOptions):
     def _set_options(self, one_based_numbering, week_start):
         self.wrapped.reset(
@@ -976,14 +1005,26 @@ class DayOfWeekOptions(_DayOfWeekOptions):
         self._set_options(one_based_numbering, week_start)
 
 
+cdef class _NullOptions(FunctionOptions):
+    def _set_options(self, nan_is_null):
+        self.wrapped.reset(
+            new CNullOptions(nan_is_null)
+        )
+
+
+class NullOptions(_NullOptions):
+    def __init__(self, nan_is_null=False):
+        self._set_options(nan_is_null)
+
+
 cdef class _VarianceOptions(FunctionOptions):
-    def _set_options(self, ddof):
-        self.wrapped.reset(new CVarianceOptions(ddof))
+    def _set_options(self, ddof, skip_nulls, min_count):
+        self.wrapped.reset(new CVarianceOptions(ddof, skip_nulls, min_count))
 
 
 class VarianceOptions(_VarianceOptions):
-    def __init__(self, *, ddof=0):
-        self._set_options(ddof)
+    def __init__(self, *, ddof=0, skip_nulls=True, min_count=0):
+        self._set_options(ddof, skip_nulls, min_count)
 
 
 cdef class _SplitOptions(FunctionOptions):

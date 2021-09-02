@@ -6,31 +6,16 @@
 
 // altrep.cpp
 #if defined(ARROW_R_WITH_ARROW)
-bool is_altrep_int_nonull(SEXP x);
-extern "C" SEXP _arrow_is_altrep_int_nonull(SEXP x_sexp){
+bool is_altrep(SEXP x);
+extern "C" SEXP _arrow_is_altrep(SEXP x_sexp){
 BEGIN_CPP11
 	arrow::r::Input<SEXP>::type x(x_sexp);
-	return cpp11::as_sexp(is_altrep_int_nonull(x));
+	return cpp11::as_sexp(is_altrep(x));
 END_CPP11
 }
 #else
-extern "C" SEXP _arrow_is_altrep_int_nonull(SEXP x_sexp){
-	Rf_error("Cannot call is_altrep_int_nonull(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
-}
-#endif
-
-// altrep.cpp
-#if defined(ARROW_R_WITH_ARROW)
-bool is_altrep_dbl_nonull(SEXP x);
-extern "C" SEXP _arrow_is_altrep_dbl_nonull(SEXP x_sexp){
-BEGIN_CPP11
-	arrow::r::Input<SEXP>::type x(x_sexp);
-	return cpp11::as_sexp(is_altrep_dbl_nonull(x));
-END_CPP11
-}
-#else
-extern "C" SEXP _arrow_is_altrep_dbl_nonull(SEXP x_sexp){
-	Rf_error("Cannot call is_altrep_dbl_nonull(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
+extern "C" SEXP _arrow_is_altrep(SEXP x_sexp){
+	Rf_error("Cannot call is_altrep(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
 }
 #endif
 
@@ -1176,37 +1161,20 @@ extern "C" SEXP _arrow_ExecNode_Project(SEXP input_sexp, SEXP exprs_sexp, SEXP n
 
 // compute-exec.cpp
 #if defined(ARROW_R_WITH_ARROW)
-std::shared_ptr<compute::ExecNode> ExecNode_ScalarAggregate(const std::shared_ptr<compute::ExecNode>& input, cpp11::list options, std::vector<std::string> target_names, std::vector<std::string> out_field_names);
-extern "C" SEXP _arrow_ExecNode_ScalarAggregate(SEXP input_sexp, SEXP options_sexp, SEXP target_names_sexp, SEXP out_field_names_sexp){
+std::shared_ptr<compute::ExecNode> ExecNode_Aggregate(const std::shared_ptr<compute::ExecNode>& input, cpp11::list options, std::vector<std::string> target_names, std::vector<std::string> out_field_names, std::vector<std::string> key_names);
+extern "C" SEXP _arrow_ExecNode_Aggregate(SEXP input_sexp, SEXP options_sexp, SEXP target_names_sexp, SEXP out_field_names_sexp, SEXP key_names_sexp){
 BEGIN_CPP11
 	arrow::r::Input<const std::shared_ptr<compute::ExecNode>&>::type input(input_sexp);
 	arrow::r::Input<cpp11::list>::type options(options_sexp);
 	arrow::r::Input<std::vector<std::string>>::type target_names(target_names_sexp);
 	arrow::r::Input<std::vector<std::string>>::type out_field_names(out_field_names_sexp);
-	return cpp11::as_sexp(ExecNode_ScalarAggregate(input, options, target_names, out_field_names));
+	arrow::r::Input<std::vector<std::string>>::type key_names(key_names_sexp);
+	return cpp11::as_sexp(ExecNode_Aggregate(input, options, target_names, out_field_names, key_names));
 END_CPP11
 }
 #else
-extern "C" SEXP _arrow_ExecNode_ScalarAggregate(SEXP input_sexp, SEXP options_sexp, SEXP target_names_sexp, SEXP out_field_names_sexp){
-	Rf_error("Cannot call ExecNode_ScalarAggregate(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
-}
-#endif
-
-// compute-exec.cpp
-#if defined(ARROW_R_WITH_ARROW)
-std::shared_ptr<compute::ExecNode> ExecNode_GroupByAggregate(const std::shared_ptr<compute::ExecNode>& input, std::vector<std::string> group_vars, std::vector<std::string> agg_srcs, cpp11::list aggregations);
-extern "C" SEXP _arrow_ExecNode_GroupByAggregate(SEXP input_sexp, SEXP group_vars_sexp, SEXP agg_srcs_sexp, SEXP aggregations_sexp){
-BEGIN_CPP11
-	arrow::r::Input<const std::shared_ptr<compute::ExecNode>&>::type input(input_sexp);
-	arrow::r::Input<std::vector<std::string>>::type group_vars(group_vars_sexp);
-	arrow::r::Input<std::vector<std::string>>::type agg_srcs(agg_srcs_sexp);
-	arrow::r::Input<cpp11::list>::type aggregations(aggregations_sexp);
-	return cpp11::as_sexp(ExecNode_GroupByAggregate(input, group_vars, agg_srcs, aggregations));
-END_CPP11
-}
-#else
-extern "C" SEXP _arrow_ExecNode_GroupByAggregate(SEXP input_sexp, SEXP group_vars_sexp, SEXP agg_srcs_sexp, SEXP aggregations_sexp){
-	Rf_error("Cannot call ExecNode_GroupByAggregate(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
+extern "C" SEXP _arrow_ExecNode_Aggregate(SEXP input_sexp, SEXP options_sexp, SEXP target_names_sexp, SEXP out_field_names_sexp, SEXP key_names_sexp){
+	Rf_error("Cannot call ExecNode_Aggregate(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
 }
 #endif
 
@@ -1258,23 +1226,6 @@ END_CPP11
 #else
 extern "C" SEXP _arrow_compute__CallFunction(SEXP func_name_sexp, SEXP args_sexp, SEXP options_sexp){
 	Rf_error("Cannot call compute__CallFunction(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
-}
-#endif
-
-// compute.cpp
-#if defined(ARROW_R_WITH_ARROW)
-SEXP compute__GroupBy(cpp11::list arguments, cpp11::list keys, cpp11::list options);
-extern "C" SEXP _arrow_compute__GroupBy(SEXP arguments_sexp, SEXP keys_sexp, SEXP options_sexp){
-BEGIN_CPP11
-	arrow::r::Input<cpp11::list>::type arguments(arguments_sexp);
-	arrow::r::Input<cpp11::list>::type keys(keys_sexp);
-	arrow::r::Input<cpp11::list>::type options(options_sexp);
-	return cpp11::as_sexp(compute__GroupBy(arguments, keys, options));
-END_CPP11
-}
-#else
-extern "C" SEXP _arrow_compute__GroupBy(SEXP arguments_sexp, SEXP keys_sexp, SEXP options_sexp){
-	Rf_error("Cannot call compute__GroupBy(). See https://arrow.apache.org/docs/r/articles/install.html for help installing Arrow C++ libraries. ");
 }
 #endif
 
@@ -7074,8 +7025,7 @@ static const R_CallMethodDef CallEntries[] = {
 		{ "_dataset_available", (DL_FUNC)& _dataset_available, 0 },
 		{ "_parquet_available", (DL_FUNC)& _parquet_available, 0 },
 		{ "_s3_available", (DL_FUNC)& _s3_available, 0 },
-		{ "_arrow_is_altrep_int_nonull", (DL_FUNC) &_arrow_is_altrep_int_nonull, 1}, 
-		{ "_arrow_is_altrep_dbl_nonull", (DL_FUNC) &_arrow_is_altrep_dbl_nonull, 1}, 
+		{ "_arrow_is_altrep", (DL_FUNC) &_arrow_is_altrep, 1}, 
 		{ "_arrow_Array__Slice1", (DL_FUNC) &_arrow_Array__Slice1, 2}, 
 		{ "_arrow_Array__Slice2", (DL_FUNC) &_arrow_Array__Slice2, 3}, 
 		{ "_arrow_Array__IsNull", (DL_FUNC) &_arrow_Array__IsNull, 2}, 
@@ -7149,12 +7099,10 @@ static const R_CallMethodDef CallEntries[] = {
 		{ "_arrow_ExecNode_Scan", (DL_FUNC) &_arrow_ExecNode_Scan, 4}, 
 		{ "_arrow_ExecNode_Filter", (DL_FUNC) &_arrow_ExecNode_Filter, 2}, 
 		{ "_arrow_ExecNode_Project", (DL_FUNC) &_arrow_ExecNode_Project, 3}, 
-		{ "_arrow_ExecNode_ScalarAggregate", (DL_FUNC) &_arrow_ExecNode_ScalarAggregate, 4}, 
-		{ "_arrow_ExecNode_GroupByAggregate", (DL_FUNC) &_arrow_ExecNode_GroupByAggregate, 4}, 
+		{ "_arrow_ExecNode_Aggregate", (DL_FUNC) &_arrow_ExecNode_Aggregate, 5}, 
 		{ "_arrow_RecordBatch__cast", (DL_FUNC) &_arrow_RecordBatch__cast, 3}, 
 		{ "_arrow_Table__cast", (DL_FUNC) &_arrow_Table__cast, 3}, 
 		{ "_arrow_compute__CallFunction", (DL_FUNC) &_arrow_compute__CallFunction, 3}, 
-		{ "_arrow_compute__GroupBy", (DL_FUNC) &_arrow_compute__GroupBy, 3}, 
 		{ "_arrow_compute__GetFunctionNames", (DL_FUNC) &_arrow_compute__GetFunctionNames, 0}, 
 		{ "_arrow_build_info", (DL_FUNC) &_arrow_build_info, 0}, 
 		{ "_arrow_runtime_info", (DL_FUNC) &_arrow_runtime_info, 0}, 
@@ -7528,7 +7476,7 @@ extern "C" void R_init_arrow(DllInfo* dll){
   R_useDynamicSymbols(dll, FALSE);
 
   #if defined(ARROW_R_WITH_ARROW) && defined(HAS_ALTREP)
-  arrow::r::Init_Altrep_classes(dll);
+  arrow::r::altrep::Init_Altrep_classes(dll);
   #endif
 
 }

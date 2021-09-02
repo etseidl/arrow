@@ -96,7 +96,8 @@ std::vector<Type::type> AllTypeIds() {
           Type::DENSE_UNION,
           Type::SPARSE_UNION,
           Type::DICTIONARY,
-          Type::EXTENSION};
+          Type::EXTENSION,
+          Type::INTERVAL_MONTH_DAY_NANO};
 }
 
 template <typename T, typename CompareFunctor>
@@ -564,6 +565,15 @@ std::shared_ptr<Array> TweakValidityBit(const std::shared_ptr<Array>& array,
   data->null_count = kUnknownNullCount;
   // Need to return a new array, because Array caches the null bitmap pointer
   return MakeArray(data);
+}
+
+bool LocaleExists(const char* locale) {
+  try {
+    std::locale loc(locale);
+    return true;
+  } catch (std::runtime_error&) {
+    return false;
+  }
 }
 
 class LocaleGuard::Impl {
