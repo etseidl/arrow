@@ -1105,18 +1105,28 @@ number of input and output types.  The type to cast to can be passed in a
 :struct:`CastOptions` instance.  As an alternative, the same service is
 provided by a concrete function :func:`~arrow::compute::Cast`.
 
-+--------------------------+------------+--------------------+------------------+------------------------------+
-| Function name            | Arity      | Input types        | Output type      | Options class                |
-+==========================+============+====================+==================+==============================+
-| cast                     | Unary      | Many               | Variable         | :struct:`CastOptions`        |
-+--------------------------+------------+--------------------+------------------+------------------------------+
-| strftime                 | Unary      | Timestamp          | String           | :struct:`StrftimeOptions`    |
-+--------------------------+------------+--------------------+------------------+------------------------------+
-| strptime                 | Unary      | String-like        | Timestamp        | :struct:`StrptimeOptions`    |
-+--------------------------+------------+--------------------+------------------+------------------------------+
++-----------------+------------+--------------------+------------------+------------------------------+-------+
+| Function name   | Arity      | Input types        | Output type      | Options class                | Notes |
++=================+============+====================+==================+==============================+=======+
+| cast            | Unary      | Many               | Variable         | :struct:`CastOptions`        |       |
++-----------------+------------+--------------------+------------------+------------------------------+-------+
+| strftime        | Unary      | Timestamp          | String           | :struct:`StrftimeOptions`    | \(1)  |
++-----------------+------------+--------------------+------------------+------------------------------+-------+
+| strptime        | Unary      | String-like        | Timestamp        | :struct:`StrptimeOptions`    |       |
++-----------------+------------+--------------------+------------------+------------------------------+-------+
 
 The conversions available with ``cast`` are listed below.  In all cases, a
 null input value is converted into a null output value.
+
+* \(1) Output precision of ``%S`` (seconds) flag depends on the input timestamp
+  precision. Timestamps with second precision are represented as integers while
+  milliseconds, microsecond and nanoseconds are represented as fixed floating
+  point numbers with 3, 6 and 9 decimal places respectively. To obtain integer
+  seconds, cast to timestamp with second resolution.
+  The character for the decimal point is localized according to the locale.
+  See `detailed formatting documentation`_ for descriptions of other flags.
+
+.. _detailed formatting documentation: https://howardhinnant.github.io/date/date.html#to_stream_formatting
 
 **Truth value extraction**
 
@@ -1203,29 +1213,29 @@ null input value is converted into a null output value.
 Temporal component extraction
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-These functions extract datetime components (year, month, day, etc) from timestamp type.
-If the input timestamps have a non-empty timezone, localized timestamp components will be returned.
+These functions extract datetime components (year, month, day, etc) from temporal types.
+For timestamps inputs with non-empty timezone, localized timestamp components will be returned.
 
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
 | Function name      | Arity      | Input types       | Output type   | Options class              | Notes |
 +====================+============+===================+===============+============================+=======+
-| year               | Unary      | Timestamp         | Int64         |                            |       |
+| year               | Unary      | Temporal          | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| month              | Unary      | Timestamp         | Int64         |                            |       |
+| month              | Unary      | Temporal          | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| day                | Unary      | Timestamp         | Int64         |                            |       |
+| day                | Unary      | Temporal          | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| day_of_week        | Unary      | Timestamp         | Int64         | :struct:`DayOfWeekOptions` | \(1)  |
+| day_of_week        | Unary      | Temporal          | Int64         | :struct:`DayOfWeekOptions` | \(1)  |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| day_of_year        | Unary      | Timestamp         | Int64         |                            |       |
+| day_of_year        | Unary      | Temporal          | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| iso_year           | Unary      | Timestamp         | Int64         |                            | \(2)  |
+| iso_year           | Unary      | Temporal          | Int64         |                            | \(2)  |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| iso_week           | Unary      | Timestamp         | Int64         |                            | \(2)  |
+| iso_week           | Unary      | Temporal          | Int64         |                            | \(2)  |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| iso_calendar       | Unary      | Timestamp         | Struct        |                            | \(3)  |
+| iso_calendar       | Unary      | Temporal          | Struct        |                            | \(3)  |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
-| quarter            | Unary      | Timestamp         | Int64         |                            |       |
+| quarter            | Unary      | Temporal          | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
 | hour               | Unary      | Timestamp         | Int64         |                            |       |
 +--------------------+------------+-------------------+---------------+----------------------------+-------+
@@ -1252,6 +1262,30 @@ If the input timestamps have a non-empty timezone, localized timestamp component
 * \(3) Output is a ``{"iso_year": output type, "iso_week": output type, "iso_day_of_week":  output type}`` Struct.
 
 .. _ISO 8601 week date definition: https://en.wikipedia.org/wiki/ISO_week_date#First_week
+
+Timezone handling
+~~~~~~~~~~~~~~~~~
+
+This function is meant to be used when an external system produces
+"timezone-naive" timestamps which need to be converted to "timezone-aware"
+timestamps (see for example the `definition
+<https://docs.python.org/3/library/datetime.html#aware-and-naive-objects>`__
+in the Python documentation).
+
+Input timestamps are assumed to be relative to the timezone given in
+:member:`AssumeTimezoneOptions::timezone`. They are converted to
+UTC-relative timestamps with the timezone metadata set to the above value.
+An error is returned if the timestamps already have the timezone metadata set.
+
++--------------------+------------+-------------------+---------------+----------------------------------+-------+
+| Function name      | Arity      | Input types       | Output type   | Options class                    | Notes |
++====================+============+===================+===============+==================================+=======+
+| assume_timezone    | Unary      | Timestamp         | Timestamp     | :struct:`AssumeTimezoneOptions`  | \(1)  |
++--------------------+------------+-------------------+---------------+----------------------------------+-------+
+
+* \(1) In addition to the timezone value, :struct:`AssumeTimezoneOptions`
+  allows choosing the behaviour when a timestamp is ambiguous or nonexistent
+  in the given timezone (because of DST shifts).
 
 
 Array-wise ("vector") functions

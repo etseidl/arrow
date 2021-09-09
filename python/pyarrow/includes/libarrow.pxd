@@ -146,6 +146,7 @@ cdef extern from "arrow/api.h" namespace "arrow" nogil:
         Type id()
 
         c_bool Equals(const CDataType& other)
+        c_bool Equals(const shared_ptr[CDataType]& other)
 
         shared_ptr[CField] field(int i)
         const vector[shared_ptr[CField]] fields()
@@ -1963,6 +1964,30 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
         c_bool one_based_numbering
         uint32_t week_start
 
+    enum CAssumeTimezoneAmbiguous \
+            "arrow::compute::AssumeTimezoneOptions::Ambiguous":
+        CAssumeTimezoneAmbiguous_AMBIGUOUS_RAISE \
+            "arrow::compute::AssumeTimezoneOptions::AMBIGUOUS_RAISE"
+        CAssumeTimezoneAmbiguous_AMBIGUOUS_EARLIEST \
+            "arrow::compute::AssumeTimezoneOptions::AMBIGUOUS_EARLIEST"
+        CAssumeTimezoneAmbiguous_AMBIGUOUS_LATEST \
+            "arrow::compute::AssumeTimezoneOptions::AMBIGUOUS_LATEST"
+
+    enum CAssumeTimezoneNonexistent \
+            "arrow::compute::AssumeTimezoneOptions::Nonexistent":
+        CAssumeTimezoneNonexistent_NONEXISTENT_RAISE \
+            "arrow::compute::AssumeTimezoneOptions::NONEXISTENT_RAISE"
+        CAssumeTimezoneNonexistent_NONEXISTENT_EARLIEST \
+            "arrow::compute::AssumeTimezoneOptions::NONEXISTENT_EARLIEST"
+        CAssumeTimezoneNonexistent_NONEXISTENT_LATEST \
+            "arrow::compute::AssumeTimezoneOptions::NONEXISTENT_LATEST"
+
+    cdef cppclass CAssumeTimezoneOptions \
+            "arrow::compute::AssumeTimezoneOptions"(CFunctionOptions):
+        CAssumeTimezoneOptions(
+            c_string timezone, CAssumeTimezoneAmbiguous ambiguous,
+            CAssumeTimezoneNonexistent nonexistent)
+
     cdef cppclass CNullOptions \
             "arrow::compute::NullOptions"(CFunctionOptions):
         CNullOptions(c_bool nan_is_null)
@@ -1993,8 +2018,10 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
 
     cdef cppclass CModeOptions \
             "arrow::compute::ModeOptions"(CFunctionOptions):
-        CModeOptions(int64_t n)
+        CModeOptions(int64_t n, c_bool skip_nulls, uint32_t min_count)
         int64_t n
+        c_bool skip_nulls
+        uint32_t min_count
 
     cdef cppclass CIndexOptions \
             "arrow::compute::IndexOptions"(CFunctionOptions):
@@ -2041,17 +2068,23 @@ cdef extern from "arrow/compute/api.h" namespace "arrow::compute" nogil:
 
     cdef cppclass CQuantileOptions \
             "arrow::compute::QuantileOptions"(CFunctionOptions):
-        CQuantileOptions(vector[double] q, CQuantileInterp interpolation)
+        CQuantileOptions(vector[double] q, CQuantileInterp interpolation,
+                         c_bool skip_nulls, uint32_t min_count)
         vector[double] q
         CQuantileInterp interpolation
+        c_bool skip_nulls
+        uint32_t min_count
 
     cdef cppclass CTDigestOptions \
             "arrow::compute::TDigestOptions"(CFunctionOptions):
         CTDigestOptions(vector[double] q,
-                        unsigned int delta, unsigned int buffer_size)
+                        unsigned int delta, unsigned int buffer_size,
+                        c_bool skip_nulls, uint32_t min_count)
         vector[double] q
         unsigned int delta
         unsigned int buffer_size
+        c_bool skip_nulls
+        uint32_t min_count
 
     enum DatumType" arrow::Datum::type":
         DatumType_NONE" arrow::Datum::NONE"
@@ -2340,6 +2373,14 @@ cdef extern from 'arrow/extension_type.h' namespace 'arrow':
     cdef cppclass CExtensionType" arrow::ExtensionType"(CDataType):
         c_string extension_name()
         shared_ptr[CDataType] storage_type()
+
+        @staticmethod
+        shared_ptr[CArray] WrapArray(shared_ptr[CDataType] ext_type,
+                                     shared_ptr[CArray] storage)
+
+        @staticmethod
+        shared_ptr[CChunkedArray] WrapArray(shared_ptr[CDataType] ext_type,
+                                            shared_ptr[CChunkedArray] storage)
 
     cdef cppclass CExtensionArray" arrow::ExtensionArray"(CArray):
         CExtensionArray(shared_ptr[CDataType], shared_ptr[CArray] storage)

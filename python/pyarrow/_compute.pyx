@@ -924,13 +924,13 @@ class IndexOptions(_IndexOptions):
 
 
 cdef class _ModeOptions(FunctionOptions):
-    def _set_options(self, n):
-        self.wrapped.reset(new CModeOptions(n))
+    def _set_options(self, n, skip_nulls, min_count):
+        self.wrapped.reset(new CModeOptions(n, skip_nulls, min_count))
 
 
 class ModeOptions(_ModeOptions):
-    def __init__(self, n=1):
-        self._set_options(n)
+    def __init__(self, n=1, skip_nulls=True, min_count=0):
+        self._set_options(n, skip_nulls, min_count)
 
 
 cdef class _SetLookupOptions(FunctionOptions):
@@ -989,7 +989,7 @@ cdef class _StrftimeOptions(FunctionOptions):
 
 
 class StrftimeOptions(_StrftimeOptions):
-    def __init__(self, format="%Y-%m-%dT%H:%M:%SZ", locale="C"):
+    def __init__(self, format="%Y-%m-%dT%H:%M:%S", locale="C"):
         self._set_options(format, locale)
 
 
@@ -1003,6 +1003,41 @@ cdef class _DayOfWeekOptions(FunctionOptions):
 class DayOfWeekOptions(_DayOfWeekOptions):
     def __init__(self, one_based_numbering=False, week_start=1):
         self._set_options(one_based_numbering, week_start)
+
+
+cdef class _AssumeTimezoneOptions(FunctionOptions):
+    def _set_options(self, timezone, ambiguous, nonexistent):
+        ambiguous_dict = {
+            'raise': CAssumeTimezoneAmbiguous_AMBIGUOUS_RAISE,
+            'earliest': CAssumeTimezoneAmbiguous_AMBIGUOUS_EARLIEST,
+            'latest': CAssumeTimezoneAmbiguous_AMBIGUOUS_LATEST,
+        }
+        nonexistent_dict = {
+            'raise': CAssumeTimezoneNonexistent_NONEXISTENT_RAISE,
+            'earliest': CAssumeTimezoneNonexistent_NONEXISTENT_EARLIEST,
+            'latest': CAssumeTimezoneNonexistent_NONEXISTENT_LATEST,
+        }
+
+        if ambiguous not in ambiguous_dict:
+            raise ValueError(
+                "{!r} is not a valid 'ambiguous' keyword".format(ambiguous)
+            )
+        if nonexistent not in nonexistent_dict:
+            raise ValueError(
+                "{!r} is not a valid 'nonexistent' keyword".format(
+                    nonexistent)
+            )
+        self.wrapped.reset(
+            new CAssumeTimezoneOptions(
+                tobytes(timezone),
+                ambiguous_dict[ambiguous],
+                nonexistent_dict[nonexistent])
+        )
+
+
+class AssumeTimezoneOptions(_AssumeTimezoneOptions):
+    def __init__(self, timezone, *, ambiguous="raise", nonexistent="raise"):
+        self._set_options(timezone, ambiguous, nonexistent)
 
 
 cdef class _NullOptions(FunctionOptions):
@@ -1096,7 +1131,7 @@ class SortOptions(_SortOptions):
 
 
 cdef class _QuantileOptions(FunctionOptions):
-    def _set_options(self, quantiles, interp):
+    def _set_options(self, quantiles, interp, skip_nulls, min_count):
         interp_dict = {
             'linear': CQuantileInterp_LINEAR,
             'lower': CQuantileInterp_LOWER,
@@ -1109,24 +1144,29 @@ cdef class _QuantileOptions(FunctionOptions):
                 '{!r} is not a valid interpolation'
                 .format(interp))
         self.wrapped.reset(
-            new CQuantileOptions(quantiles, interp_dict[interp]))
+            new CQuantileOptions(quantiles, interp_dict[interp],
+                                 skip_nulls, min_count))
 
 
 class QuantileOptions(_QuantileOptions):
-    def __init__(self, *, q=0.5, interpolation='linear'):
+    def __init__(self, *, q=0.5, interpolation='linear',
+                 skip_nulls=True, min_count=0):
         if not isinstance(q, (list, tuple, np.ndarray)):
             q = [q]
-        self._set_options(q, interpolation)
+        self._set_options(q, interpolation, skip_nulls, min_count)
 
 
 cdef class _TDigestOptions(FunctionOptions):
-    def _set_options(self, quantiles, delta, buffer_size):
+    def _set_options(self, quantiles, delta, buffer_size,
+                     skip_nulls, min_count):
         self.wrapped.reset(
-            new CTDigestOptions(quantiles, delta, buffer_size))
+            new CTDigestOptions(quantiles, delta, buffer_size,
+                                skip_nulls, min_count))
 
 
 class TDigestOptions(_TDigestOptions):
-    def __init__(self, *, q=0.5, delta=100, buffer_size=500):
+    def __init__(self, *, q=0.5, delta=100, buffer_size=500,
+                 skip_nulls=True, min_count=0):
         if not isinstance(q, (list, tuple, np.ndarray)):
             q = [q]
-        self._set_options(q, delta, buffer_size)
+        self._set_options(q, delta, buffer_size, skip_nulls, min_count)

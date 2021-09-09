@@ -177,11 +177,11 @@ std::shared_ptr<arrow::compute::FunctionOptions> make_compute_options(
       func_name == "hash_all") {
     using Options = arrow::compute::ScalarAggregateOptions;
     auto out = std::make_shared<Options>(Options::Defaults());
-    if (!Rf_isNull(options["na.min_count"])) {
-      out->min_count = cpp11::as_cpp<int>(options["na.min_count"]);
+    if (!Rf_isNull(options["min_count"])) {
+      out->min_count = cpp11::as_cpp<int>(options["min_count"]);
     }
-    if (!Rf_isNull(options["na.rm"])) {
-      out->skip_nulls = cpp11::as_cpp<bool>(options["na.rm"]);
+    if (!Rf_isNull(options["skip_nulls"])) {
+      out->skip_nulls = cpp11::as_cpp<bool>(options["skip_nulls"]);
     }
     return out;
   }
@@ -224,6 +224,12 @@ std::shared_ptr<arrow::compute::FunctionOptions> make_compute_options(
       out->interpolation =
           cpp11::as_cpp<enum arrow::compute::QuantileOptions::Interpolation>(
               interpolation);
+    }
+    if (!Rf_isNull(options["min_count"])) {
+      out->min_count = cpp11::as_cpp<int64_t>(options["min_count"]);
+    }
+    if (!Rf_isNull(options["skip_nulls"])) {
+      out->skip_nulls = cpp11::as_cpp<int64_t>(options["skip_nulls"]);
     }
     return out;
   }
@@ -319,6 +325,22 @@ std::shared_ptr<arrow::compute::FunctionOptions> make_compute_options(
         cpp11::as_cpp<arrow::TimeUnit::type>(options["unit"]));
   }
 
+  if (func_name == "assume_timezone") {
+    using Options = arrow::compute::AssumeTimezoneOptions;
+    enum Options::Ambiguous ambiguous;
+    enum Options::Nonexistent nonexistent;
+
+    if (!Rf_isNull(options["ambiguous"])) {
+      ambiguous = cpp11::as_cpp<enum Options::Ambiguous>(options["ambiguous"]);
+    }
+    if (!Rf_isNull(options["nonexistent"])) {
+      nonexistent = cpp11::as_cpp<enum Options::Nonexistent>(options["nonexistent"]);
+    }
+
+    return std::make_shared<Options>(cpp11::as_cpp<std::string>(options["timezone"]),
+                                     ambiguous, nonexistent);
+  }
+
   if (func_name == "split_pattern" || func_name == "split_pattern_regex") {
     using Options = arrow::compute::SplitPatternOptions;
     int64_t max_splits = -1;
@@ -354,6 +376,13 @@ std::shared_ptr<arrow::compute::FunctionOptions> make_compute_options(
     return std::make_shared<Options>(max_splits, reverse);
   }
 
+  if (func_name == "utf8_trim" || func_name == "utf8_ltrim" ||
+      func_name == "utf8_rtrim" || func_name == "ascii_trim" ||
+      func_name == "ascii_ltrim" || func_name == "ascii_rtrim") {
+    using Options = arrow::compute::TrimOptions;
+    return std::make_shared<Options>(cpp11::as_cpp<std::string>(options["characters"]));
+  }
+
   if (func_name == "utf8_slice_codeunits") {
     using Options = arrow::compute::SliceOptions;
 
@@ -376,11 +405,11 @@ std::shared_ptr<arrow::compute::FunctionOptions> make_compute_options(
     using Options = arrow::compute::VarianceOptions;
     auto out = std::make_shared<Options>();
     out->ddof = cpp11::as_cpp<int64_t>(options["ddof"]);
-    if (!Rf_isNull(options["na.min_count"])) {
-      out->min_count = cpp11::as_cpp<int64_t>(options["na.min_count"]);
+    if (!Rf_isNull(options["min_count"])) {
+      out->min_count = cpp11::as_cpp<int64_t>(options["min_count"]);
     }
-    if (!Rf_isNull(options["na.rm"])) {
-      out->skip_nulls = cpp11::as_cpp<int64_t>(options["na.rm"]);
+    if (!Rf_isNull(options["skip_nulls"])) {
+      out->skip_nulls = cpp11::as_cpp<bool>(options["skip_nulls"]);
     }
     return out;
   }
