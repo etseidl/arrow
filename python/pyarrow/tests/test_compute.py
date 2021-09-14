@@ -16,7 +16,7 @@
 # under the License.
 
 from datetime import datetime
-from functools import lru_cache
+from functools import lru_cache, partial
 import inspect
 import pickle
 import pytest
@@ -123,9 +123,12 @@ def test_option_class_equality():
         pc.SetLookupOptions(value_set=pa.array([1])),
         pc.SliceOptions(start=0, stop=1, step=1),
         pc.SplitPatternOptions(pattern="pattern"),
+        pc.SelectKOptions(k=0, sort_keys=[("b", "ascending")]),
         pc.StrptimeOptions("%Y", "s"),
         pc.TrimOptions(" "),
         pc.StrftimeOptions(),
+        pc.RoundOptions(ndigits=2, round_mode="towards_infinity"),
+        pc.RoundToMultipleOptions(multiple=100, round_mode="towards_infinity"),
     ]
     # TODO: We should test on windows once ARROW-13168 is resolved.
     # Timezone database is not available on Windows yet
@@ -1325,6 +1328,70 @@ def test_arithmetic_multiply():
     assert result.equals(expected)
 
 
+@pytest.mark.parametrize("ty", ["round", "round_to_multiple"])
+def test_round_to_integer(ty):
+    if ty == "round":
+        round = pc.round
+        RoundOptions = partial(pc.RoundOptions, ndigits=0)
+    elif ty == "round_to_multiple":
+        round = pc.round_to_multiple
+        RoundOptions = partial(pc.RoundToMultipleOptions, multiple=1)
+
+    values = [3.2, 3.5, 3.7, 4.5, -3.2, -3.5, -3.7, None]
+    rmode_and_expected = {
+        "down": [3, 3, 3, 4, -4, -4, -4, None],
+        "up": [4, 4, 4, 5, -3, -3, -3, None],
+        "towards_zero": [3, 3, 3, 4, -3, -3, -3, None],
+        "towards_infinity": [4, 4, 4, 5, -4, -4, -4, None],
+        "half_down": [3, 3, 4, 4, -3, -4, -4, None],
+        "half_up": [3, 4, 4, 5, -3, -3, -4, None],
+        "half_towards_zero": [3, 3, 4, 4, -3, -3, -4, None],
+        "half_towards_infinity": [3, 4, 4, 5, -3, -4, -4, None],
+        "half_to_even": [3, 4, 4, 4, -3, -4, -4, None],
+        "half_to_odd": [3, 3, 4, 5, -3, -3, -4, None],
+    }
+    for round_mode, expected in rmode_and_expected.items():
+        options = RoundOptions(round_mode=round_mode)
+        result = round(values, options=options)
+        np.testing.assert_array_equal(result, pa.array(expected))
+
+
+def test_round():
+    values = [320, 3.5, 3.075, 4.5, -3.212, -35.1234, -3.045, None]
+    ndigits_and_expected = {
+        -2: [300, 0, 0, 0, -0, -0, -0, None],
+        -1: [320, 0, 0, 0, -0, -40, -0, None],
+        0: [320, 4, 3, 5, -3, -35, -3, None],
+        1: [320, 3.5, 3.1, 4.5, -3.2, -35.1, -3, None],
+        2: [320, 3.5, 3.08, 4.5, -3.21, -35.12, -3.05, None],
+    }
+    for ndigits, expected in ndigits_and_expected.items():
+        options = pc.RoundOptions(
+            ndigits=ndigits, round_mode="half_towards_infinity")
+        result = pc.round(values, options=options)
+        np.testing.assert_allclose(result, pa.array(expected), equal_nan=True)
+
+
+def test_round_to_multiple():
+    values = [320, 3.5, 3.075, 4.5, -3.212, -35.1234, -3.045, None]
+    multiple_and_expected = {
+        2: [320, 4, 4, 4, -4, -36, -4, None],
+        0.05: [320, 3.5, 3.1, 4.5, -3.2, -35.1, -3.05, None],
+        0.1: [320, 3.5, 3.1, 4.5, -3.2, -35.1, -3, None],
+        10: [320, 0, 0, 0, -0, -40, -0, None],
+        100: [300, 0, 0, 0, -0, -0, -0, None],
+    }
+    for multiple, expected in multiple_and_expected.items():
+        options = pc.RoundToMultipleOptions(
+            multiple=multiple, round_mode="half_towards_infinity")
+        result = pc.round_to_multiple(values, options=options)
+        np.testing.assert_allclose(result, pa.array(expected), equal_nan=True)
+
+    with pytest.raises(pa.ArrowInvalid,
+                       match="multiple has to be a positive value"):
+        pc.round_to_multiple(values, multiple=-2)
+
+
 def test_is_null():
     arr = pa.array([1, 2, 3, None])
     result = arr.is_null()
@@ -1778,6 +1845,69 @@ def test_partition_nth():
                for i in range(pivot))
     assert all(data[indices[i]] >= data[indices[pivot]]
                for i in range(pivot, len(data)))
+
+
+def test_select_k_array():
+    def validate_select_k(select_k_indices, arr, order, stable_sort=False):
+        sorted_indices = pc.sort_indices(arr, sort_keys=[("dummy", order)])
+        head_k_indices = sorted_indices.slice(0, len(select_k_indices))
+        if stable_sort:
+            assert select_k_indices == head_k_indices
+        else:
+            expected = pc.take(arr, head_k_indices)
+            actual = pc.take(arr, select_k_indices)
+            assert actual == expected
+
+    arr = pa.array([1, 2, None, 0])
+    for order in ["descending", "ascending"]:
+        for k in [0, 2, 4]:
+            result = pc.select_k_unstable(
+                arr, k=k, sort_keys=[("dummy", order)])
+            validate_select_k(result, arr, order)
+
+    result = pc.select_k_unstable(arr, options=pc.SelectKOptions(
+        k=2, sort_keys=[("dummy", "descending")]))
+    validate_select_k(result, arr, "descending")
+
+    result = pc.select_k_unstable(arr, options=pc.SelectKOptions(
+        k=2, sort_keys=[("dummy", "ascending")]))
+    validate_select_k(result, arr, "ascending")
+
+
+def test_select_k_table():
+    table = pa.table({"a": [1, 2, 0], "b": [1, 0, 1]})
+
+    def validate_select_k(select_k_indices, table, sort_keys,
+                          stable_sort=False):
+        sorted_indices = pc.sort_indices(table, sort_keys=sort_keys)
+        head_k_indices = sorted_indices.slice(0, len(select_k_indices))
+        if stable_sort:
+            assert select_k_indices == head_k_indices
+        else:
+            expected = pc.take(table, head_k_indices)
+            actual = pc.take(table, select_k_indices)
+            assert actual == expected
+
+    for k in [0, 2, 4]:
+        result = pc.select_k_unstable(
+            table, k=k, sort_keys=[("a", "ascending")])
+        validate_select_k(result, table, sort_keys=[("a", "ascending")])
+
+        result = pc.select_k_unstable(
+            table, k=k, sort_keys=[("a", "ascending"), ("b", "ascending")]
+        )
+        validate_select_k(result, table, sort_keys=[
+                          ("a", "ascending"), ("b", "ascending")])
+
+    with pytest.raises(ValueError,
+                       match="SelectK requires a nonnegative `k`"):
+        pc.select_k_unstable(table)
+
+    with pytest.raises(ValueError, match="not a valid order"):
+        pc.select_k_unstable(table, k=k, sort_keys=[("a", "nonscending")])
+
+    with pytest.raises(ValueError, match="Nonexistent sort key column"):
+        pc.select_k_unstable(table, k=k, sort_keys=[("unknown", "ascending")])
 
 
 def test_array_sort_indices():
