@@ -25,7 +25,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <iostream>
 
 #include "arrow/array.h"
 #include "arrow/buffer_builder.h"
@@ -359,7 +358,6 @@ class SerializedPageWriter : public PageWriter {
         compressor_->Compress(src_buffer.size(), src_buffer.data(), max_compressed_size,
                               dest_buffer->mutable_data()));
     PARQUET_THROW_NOT_OK(dest_buffer->Resize(compressed_size, false));
-    //std::cout << "compress " << src_buffer.size() << "->" << compressed_size << std::endl;
   }
 
   int64_t WriteDataPage(const DataPage& page) override {
@@ -1371,7 +1369,6 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
       current_value_encoder_ = dynamic_cast<ValueEncoderType*>(current_encoder_.get());
       current_dict_encoder_ = nullptr;  // not using dict
       encoding_ = Encoding::PLAIN;
-      //std::cout << "fallback" << std::endl;
     }
   }
 
