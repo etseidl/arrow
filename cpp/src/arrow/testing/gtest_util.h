@@ -339,6 +339,11 @@ std::shared_ptr<Scalar> ScalarFromJSON(const std::shared_ptr<DataType>&,
                                        util::string_view json);
 
 ARROW_TESTING_EXPORT
+std::shared_ptr<Scalar> DictScalarFromJSON(const std::shared_ptr<DataType>&,
+                                           util::string_view index_json,
+                                           util::string_view dictionary_json);
+
+ARROW_TESTING_EXPORT
 std::shared_ptr<Table> TableFromJSON(const std::shared_ptr<Schema>&,
                                      const std::vector<std::string>& json);
 
@@ -638,6 +643,9 @@ class ARROW_TESTING_EXPORT GatingTask {
   ///
   /// Note: The GatingTask must outlive any Task instances
   std::function<void()> Task();
+  /// \brief Creates a new waiting task as a future.  The future will not complete
+  /// until unlocked.
+  Future<> AsyncTask();
   /// \brief Waits until at least count tasks are running.
   Status WaitForRunning(int count);
   /// \brief Unlocks all waiting tasks.  Returns an invalid status if any waiting task has

@@ -228,10 +228,30 @@ class DatasetFixtureMixin : public ::testing::Test {
                                         bool ensure_drained = true) {
     ASSERT_OK_AND_ASSIGN(auto it, scanner->ScanBatchesUnordered());
 
+    // ToVector does not work since EnumeratedRecordBatch is not comparable
+    std::vector<EnumeratedRecordBatch> batches;
+    for (;;) {
+      ASSERT_OK_AND_ASSIGN(auto batch, it.Next());
+      if (IsIterationEnd(batch)) break;
+      batches.push_back(std::move(batch));
+    }
+    std::sort(batches.begin(), batches.end(),
+              [](const EnumeratedRecordBatch& left,
+                 const EnumeratedRecordBatch& right) -> bool {
+                if (left.fragment.index < right.fragment.index) {
+                  return true;
+                }
+                if (left.fragment.index > right.fragment.index) {
+                  return false;
+                }
+                return left.record_batch.index < right.record_batch.index;
+              });
+
     int fragment_counter = 0;
     bool saw_last_fragment = false;
     int batch_counter = 0;
-    auto visitor = [&](EnumeratedRecordBatch batch) -> Status {
+
+    for (const auto& batch : batches) {
       if (batch_counter == 0) {
         EXPECT_FALSE(saw_last_fragment);
       }
@@ -245,9 +265,7 @@ class DatasetFixtureMixin : public ::testing::Test {
       }
       saw_last_fragment = batch.fragment.last;
       AssertBatchEquals(expected, *batch.record_batch.value);
-      return Status::OK();
-    };
-    ARROW_EXPECT_OK(it.Visit(visitor));
+    }
 
     if (ensure_drained) {
       EnsureRecordBatchReaderDrained(expected);
@@ -567,6 +585,24 @@ class FileFormatScanMixin : public FileFormatFixtureMixin<FormatHelper>,
     int64_t row_count = 0;
     for (auto maybe_batch : Batches(fragment)) {
       ASSERT_OK_AND_ASSIGN(auto batch, maybe_batch);
+      row_count += batch->num_rows();
+    }
+    ASSERT_EQ(row_count, GetParam().expected_rows());
+  }
+  // Ensure batch_size is respected
+  void TestScanBatchSize() {
+    constexpr int kBatchSize = 17;
+    auto reader = GetRecordBatchReader(schema({field("f64", float64())}));
+    auto source = this->GetFileSource(reader.get());
+
+    this->SetSchema(reader->schema()->fields());
+    auto fragment = this->MakeFragment(*source);
+
+    int64_t row_count = 0;
+    opts_->batch_size = kBatchSize;
+    for (auto maybe_batch : Batches(fragment)) {
+      ASSERT_OK_AND_ASSIGN(auto batch, maybe_batch);
+      ASSERT_LE(batch->num_rows(), kBatchSize);
       row_count += batch->num_rows();
     }
     ASSERT_EQ(row_count, GetParam().expected_rows());
@@ -1050,6 +1086,7 @@ class WriteFileSystemDatasetMixin : public MakeFileSystemDatasetMixin {
   void DoWrite(std::shared_ptr<Partitioning> desired_partitioning) {
     write_options_.partitioning = desired_partitioning;
     auto scanner_builder = ScannerBuilder(dataset_, scan_options_);
+    ASSERT_OK(scanner_builder.UseAsync(true));
     ASSERT_OK_AND_ASSIGN(auto scanner, scanner_builder.Finish());
     ASSERT_OK(FileSystemDataset::Write(write_options_, scanner));
 
@@ -1079,7 +1116,7 @@ class WriteFileSystemDatasetMixin : public MakeFileSystemDatasetMixin {
         {"region": "QC", "model": "X", "sales": 1.0, "country": "CA"},
         {"region": "QC", "model": "Y", "sales": 69, "country": "CA"}
       ])";
-    expected_files_["/new_root/2019/1/dat_1"] = R"([
+    expected_files_["/new_root/2019/1/dat_0"] = R"([
         {"region": "CA", "model": "3", "sales": 273.5, "country": "US"},
         {"region": "CA", "model": "S", "sales": 13, "country": "US"},
         {"region": "CA", "model": "X", "sales": 54, "country": "US"},
@@ -1107,7 +1144,7 @@ class WriteFileSystemDatasetMixin : public MakeFileSystemDatasetMixin {
         {"year": 2018, "month": 1, "model": "Y", "sales": 27.5},
         {"year": 2018, "month": 1, "model": "X", "sales": 136.25}
   ])";
-    expected_files_["/new_root/CA/QC/dat_1"] = R"([
+    expected_files_["/new_root/CA/QC/dat_0"] = R"([
         {"year": 2018, "month": 1, "model": "3", "sales": 512},
         {"year": 2018, "month": 1, "model": "S", "sales": 978},
         {"year": 2018, "month": 1, "model": "X", "sales": 1.0},
@@ -1117,7 +1154,7 @@ class WriteFileSystemDatasetMixin : public MakeFileSystemDatasetMixin {
         {"year": 2019, "month": 1, "model": "X", "sales": 42},
         {"year": 2019, "month": 1, "model": "Y", "sales": 37}
   ])";
-    expected_files_["/new_root/US/CA/dat_2"] = R"([
+    expected_files_["/new_root/US/CA/dat_0"] = R"([
         {"year": 2019, "month": 1, "model": "3", "sales": 273.5},
         {"year": 2019, "month": 1, "model": "S", "sales": 13},
         {"year": 2019, "month": 1, "model": "X", "sales": 54},
@@ -1141,19 +1178,19 @@ class WriteFileSystemDatasetMixin : public MakeFileSystemDatasetMixin {
         {"model": "Y", "sales": 27.5},
         {"model": "X", "sales": 136.25}
   ])";
-    expected_files_["/new_root/2018/1/CA/QC/dat_1"] = R"([
+    expected_files_["/new_root/2018/1/CA/QC/dat_0"] = R"([
         {"model": "3", "sales": 512},
         {"model": "S", "sales": 978},
         {"model": "X", "sales": 1.0},
         {"model": "Y", "sales": 69}
   ])";
-    expected_files_["/new_root/2019/1/US/CA/dat_2"] = R"([
+    expected_files_["/new_root/2019/1/US/CA/dat_0"] = R"([
         {"model": "3", "sales": 273.5},
         {"model": "S", "sales": 13},
         {"model": "X", "sales": 54},
         {"model": "Y", "sales": 21}
   ])";
-    expected_files_["/new_root/2019/1/CA/QC/dat_3"] = R"([
+    expected_files_["/new_root/2019/1/CA/QC/dat_0"] = R"([
         {"model": "S", "sales": 10},
         {"model": "3", "sales": 152.25},
         {"model": "X", "sales": 42},

@@ -24,20 +24,6 @@ import (
 	"github.com/apache/arrow/go/arrow/internal/debug"
 )
 
-// helper function to handle big-endian architectures properly
-var toFromLEFunc func(uint64) uint64
-
-func init() {
-	if endian.IsBigEndian {
-		// if we're on a big endian architecture, then use the reverse bytes
-		// function so we can perform byte-swaps when necessary
-		toFromLEFunc = bits.ReverseBytes64
-	} else {
-		// identity function if we're on a little endian architecture
-		toFromLEFunc = func(in uint64) uint64 { return in }
-	}
-}
-
 // BitmapReader is a simple bitmap reader for a byte slice.
 type BitmapReader struct {
 	bitmap []byte
@@ -152,18 +138,21 @@ func (b *BitmapWriter) Next() {
 // AppendBools writes a series of booleans to the bitmapwriter and returns
 // the number of remaining bytes left in the buffer for writing.
 func (b *BitmapWriter) AppendBools(in []bool) int {
-	space := min(int(BytesForBits(int64(b.length-b.pos))), len(in))
+	space := min(b.length-b.pos, len(in))
+	if space == 0 {
+		return 0
+	}
 
-	// location that the first byte needs to be written to for appending
-	appslice := b.buf[int(b.byteOffset):]
-	// update everything but curByte
 	bitOffset := bits.TrailingZeros32(uint32(b.bitMask))
+	// location that the first byte needs to be written to for appending
+	appslice := b.buf[int(b.byteOffset) : b.byteOffset+int(BytesForBits(int64(bitOffset+space)))]
+	// update everything but curByte
 	appslice[0] = b.curByte
 	for i, b := range in[:space] {
 		if b {
-			SetBit(appslice, i)
+			SetBit(appslice, i+bitOffset)
 		} else {
-			ClearBit(appslice, i)
+			ClearBit(appslice, i+bitOffset)
 		}
 	}
 
@@ -172,7 +161,7 @@ func (b *BitmapWriter) AppendBools(in []bool) int {
 	b.byteOffset += (bitOffset + space) / 8
 	b.curByte = appslice[len(appslice)-1]
 
-	return int(space)
+	return space
 }
 
 // Finish flushes the final byte out to the byteslice in case it was not already
@@ -214,7 +203,7 @@ func NewBitmapWordReader(bitmap []byte, offset, length int) *BitmapWordReader {
 	if bm.nwords > 0 {
 		bm.curword = toFromLEFunc(endian.Native.Uint64(bm.bitmap))
 	} else {
-		bm.curword = toFromLEFunc(uint64(bm.bitmap[0]))
+		setLSB(&bm.curword, bm.bitmap[0])
 	}
 	return bm
 }
@@ -273,12 +262,12 @@ func (bm *BitmapWordReader) NextTrailingByte() (val byte, validBits int) {
 
 	bm.bitmap = bm.bitmap[1:]
 	nextByte := bm.bitmap[0]
-	val = (*[8]byte)(unsafe.Pointer(&bm.curword))[0]
+	val = getLSB(bm.curword)
 	if bm.offset != 0 {
 		val >>= byte(bm.offset)
 		val |= nextByte << (8 - bm.offset)
 	}
-	(*[8]byte)(unsafe.Pointer(&bm.curword))[0] = nextByte
+	setLSB(&bm.curword, nextByte)
 	bm.trailingBits -= 8
 	bm.trailingBytes--
 	validBits = 8
@@ -314,7 +303,7 @@ func NewBitmapWordWriter(bitmap []byte, start, len int) *BitmapWordWriter {
 		if ret.len >= int(unsafe.Sizeof(uint64(0))*8) {
 			ret.currentWord = toFromLEFunc(endian.Native.Uint64(ret.bitmap))
 		} else if ret.len > 0 {
-			ret.currentWord = toFromLEFunc(uint64(ret.bitmap[0]))
+			setLSB(&ret.currentWord, ret.bitmap[0])
 		}
 	}
 	return ret
@@ -337,7 +326,7 @@ func (bm *BitmapWordWriter) PutNextWord(word uint64) {
 		// +-------------+-----+-------------+-----+
 		// |<------ next ----->|<---- current ---->|
 		word = (word << uint64(bm.offset)) | (word >> (int64(sz*8) - int64(bm.offset)))
-		next := endian.Native.Uint64(bm.bitmap[sz:])
+		next := toFromLEFunc(endian.Native.Uint64(bm.bitmap[sz:]))
 		bm.currentWord = (bm.currentWord & bm.bitMask) | (word &^ bm.bitMask)
 		next = (next &^ bm.bitMask) | (word & bm.bitMask)
 		endian.Native.PutUint64(bm.bitmap, toFromLEFunc(bm.currentWord))
@@ -352,7 +341,7 @@ func (bm *BitmapWordWriter) PutNextWord(word uint64) {
 // PutNextTrailingByte writes the number of bits indicated by validBits from b to
 // the bitmap.
 func (bm *BitmapWordWriter) PutNextTrailingByte(b byte, validBits int) {
-	curbyte := (*[8]byte)(unsafe.Pointer(&bm.currentWord))[0]
+	curbyte := getLSB(bm.currentWord)
 	if validBits == 8 {
 		if bm.offset != 0 {
 			b = (b << bm.offset) | (b >> (8 - bm.offset))

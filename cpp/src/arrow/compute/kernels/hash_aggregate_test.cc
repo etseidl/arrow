@@ -57,6 +57,7 @@
 #include "arrow/util/thread_pool.h"
 #include "arrow/util/vector.h"
 
+using testing::Eq;
 using testing::HasSubstr;
 
 namespace arrow {
@@ -319,6 +320,14 @@ struct TestGrouper {
     AssertEquivalentIds(expected, ids);
   }
 
+  void ExpectUniques(const ExecBatch& uniques) {
+    EXPECT_THAT(grouper_->GetUniques(), ResultWith(Eq(uniques)));
+  }
+
+  void ExpectUniques(const std::string& uniques_json) {
+    ExpectUniques(ExecBatchFromJSON(descrs_, uniques_json));
+  }
+
   void AssertEquivalentIds(const Datum& expected, const Datum& actual) {
     auto left = expected.make_array();
     auto right = actual.make_array();
@@ -392,7 +401,10 @@ struct TestGrouper {
 
     for (int i = 0; i < key_batch.num_values(); ++i) {
       SCOPED_TRACE(std::to_string(i) + "th key array");
-      auto original = key_batch[i].make_array();
+      auto original =
+          key_batch[i].is_array()
+              ? key_batch[i].make_array()
+              : *MakeArrayFromScalar(*key_batch[i].scalar(), key_batch.length);
       ASSERT_OK_AND_ASSIGN(auto encoded, Take(*uniques_[i].make_array(), *ids));
       AssertArraysEqual(*original, *encoded, /*verbose=*/true,
                         EqualOptions().nans_equal(true));
@@ -437,13 +449,17 @@ TEST(Grouper, NumericKey) {
     TestGrouper g({ty});
 
     g.ExpectConsume("[[3], [3]]", "[0, 0]");
+    g.ExpectUniques("[[3]]");
 
     g.ExpectConsume("[[3], [3]]", "[0, 0]");
+    g.ExpectUniques("[[3]]");
 
-    g.ExpectConsume("[[27], [81]]", "[1, 2]");
+    g.ExpectConsume("[[27], [81], [81]]", "[1, 2, 2]");
+    g.ExpectUniques("[[3], [27], [81]]");
 
     g.ExpectConsume("[[3], [27], [3], [27], [null], [81], [27], [81]]",
                     "[0, 1, 0, 1, 3, 2, 1, 2]");
+    g.ExpectUniques("[[3], [27], [81], [null]]");
   }
 }
 
@@ -624,6 +640,37 @@ TEST(Grouper, MakeGroupings) {
   auto ids = checked_pointer_cast<UInt32Array>(ArrayFromJSON(uint32(), "[0, null, 1]"));
   EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid, HasSubstr("MakeGroupings with null ids"),
                                   internal::Grouper::MakeGroupings(*ids, 5));
+}
+
+TEST(Grouper, ScalarValues) {
+  // large_utf8 forces GrouperImpl over GrouperFastImpl
+  for (const auto& str_type : {utf8(), large_utf8()}) {
+    {
+      TestGrouper g({ValueDescr::Scalar(boolean()), ValueDescr::Scalar(int32()),
+                     ValueDescr::Scalar(decimal128(3, 2)),
+                     ValueDescr::Scalar(decimal256(3, 2)),
+                     ValueDescr::Scalar(fixed_size_binary(2)),
+                     ValueDescr::Scalar(str_type), ValueDescr::Array(int32())});
+      g.ExpectConsume(
+          R"([
+[true, 1, "1.00", "2.00", "ab", "foo", 2],
+[true, 1, "1.00", "2.00", "ab", "foo", 2],
+[true, 1, "1.00", "2.00", "ab", "foo", 3]
+])",
+          "[0, 0, 1]");
+    }
+    {
+      auto dict_type = dictionary(int32(), utf8());
+      TestGrouper g({ValueDescr::Scalar(dict_type), ValueDescr::Scalar(str_type)});
+      const auto dict = R"(["foo", null])";
+      g.ExpectConsume(
+          {DictScalarFromJSON(dict_type, "0", dict), ScalarFromJSON(str_type, R"("")")},
+          ArrayFromJSON(uint32(), "[0]"));
+      g.ExpectConsume(
+          {DictScalarFromJSON(dict_type, "1", dict), ScalarFromJSON(str_type, R"("")")},
+          ArrayFromJSON(uint32(), "[1]"));
+    }
+  }
 }
 
 TEST(GroupBy, Errors) {
@@ -1144,14 +1191,78 @@ TEST(GroupBy, TDigest) {
                         field("key_0", int64()),
                     }),
                     R"([
-    [[1.0], [1.0, 3.0, 3.0], [1.0, 3.0, 3.0], null,  null,  null,  1],
-    [[0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0], [0.0], [0.0], 2],
-    [null,  null,            null,            null,  null,  null,  3],
-    [[1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0], null,  [1.0], null,  4],
-    [[1.0], [1.0, 4.0, 4.0], [1.0, 4.0, 4.0], [1.0], null,  null,  null]
+    [[1.0],  [1.0, 3.0, 3.0],    [1.0, 3.0, 3.0],    [null], [null], [null], 1],
+    [[0.0],  [0.0, 0.0, 0.0],    [0.0, 0.0, 0.0],    [0.0],  [0.0],  [0.0],  2],
+    [[null], [null, null, null], [null, null, null], [null], [null], [null], 3],
+    [[1.0],  [1.0, 1.0, 1.0],    [1.0, 1.0, 1.0],    [null], [1.0],  [null], 4],
+    [[1.0],  [1.0, 4.0, 4.0],    [1.0, 4.0, 4.0],    [1.0],  [null], [null], null]
   ])"),
       aggregated_and_grouped,
       /*verbose=*/true);
+}
+
+TEST(GroupBy, ApproximateMedian) {
+  for (const auto& type : {float64(), int8()}) {
+    auto batch =
+        RecordBatchFromJSON(schema({field("argument", type), field("key", int64())}), R"([
+    [1,    1],
+    [null, 1],
+    [0,    2],
+    [null, 3],
+    [1,    4],
+    [4,    null],
+    [3,    1],
+    [0,    2],
+    [-1,   2],
+    [1,    null],
+    [null, 3],
+    [1,    4],
+    [1,    4],
+    [null, 4]
+  ])");
+
+    ScalarAggregateOptions options;
+    ScalarAggregateOptions keep_nulls(
+        /*skip_nulls=*/false, /*min_count=*/0);
+    ScalarAggregateOptions min_count(
+        /*skip_nulls=*/true, /*min_count=*/3);
+    ScalarAggregateOptions keep_nulls_min_count(
+        /*skip_nulls=*/false, /*min_count=*/3);
+    ASSERT_OK_AND_ASSIGN(Datum aggregated_and_grouped,
+                         internal::GroupBy(
+                             {
+                                 batch->GetColumnByName("argument"),
+                                 batch->GetColumnByName("argument"),
+                                 batch->GetColumnByName("argument"),
+                                 batch->GetColumnByName("argument"),
+                             },
+                             {
+                                 batch->GetColumnByName("key"),
+                             },
+                             {
+                                 {"hash_approximate_median", &options},
+                                 {"hash_approximate_median", &keep_nulls},
+                                 {"hash_approximate_median", &min_count},
+                                 {"hash_approximate_median", &keep_nulls_min_count},
+                             }));
+
+    AssertDatumsApproxEqual(ArrayFromJSON(struct_({
+                                              field("hash_approximate_median", float64()),
+                                              field("hash_approximate_median", float64()),
+                                              field("hash_approximate_median", float64()),
+                                              field("hash_approximate_median", float64()),
+                                              field("key_0", int64()),
+                                          }),
+                                          R"([
+    [1.0,  null, null, null, 1],
+    [0.0,  0.0,  0.0,  0.0,  2],
+    [null, null, null, null, 3],
+    [1.0,  null, 1.0,  null, 4],
+    [1.0,  1.0,  null, null, null]
+  ])"),
+                            aggregated_and_grouped,
+                            /*verbose=*/true);
+  }
 }
 
 TEST(GroupBy, StddevVarianceTDigestScalar) {
@@ -1497,6 +1608,59 @@ TEST(GroupBy, MinMaxDecimal) {
           /*verbose=*/true);
     }
   }
+}
+
+TEST(GroupBy, MinOrMax) {
+  auto table =
+      TableFromJSON(schema({field("argument", float64()), field("key", int64())}), {R"([
+    [1.0,   1],
+    [null,  1]
+])",
+                                                                                    R"([
+    [0.0,   2],
+    [null,  3],
+    [4.0,   null],
+    [3.25,  1],
+    [0.125, 2]
+])",
+                                                                                    R"([
+    [-0.25, 2],
+    [0.75,  null],
+    [null,  3]
+])",
+                                                                                    R"([
+    [NaN,   4],
+    [null,  4],
+    [Inf,   4],
+    [-Inf,  4],
+    [0.0,   4]
+])"});
+
+  ASSERT_OK_AND_ASSIGN(Datum aggregated_and_grouped,
+                       GroupByTest({table->GetColumnByName("argument"),
+                                    table->GetColumnByName("argument")},
+                                   {table->GetColumnByName("key")},
+                                   {
+                                       {"hash_min", nullptr},
+                                       {"hash_max", nullptr},
+                                   },
+                                   /*use_threads=*/true, /*use_exec_plan=*/true));
+  SortBy({"key_0"}, &aggregated_and_grouped);
+
+  AssertDatumsEqual(ArrayFromJSON(struct_({
+                                      field("hash_min", float64()),
+                                      field("hash_max", float64()),
+                                      field("key_0", int64()),
+                                  }),
+                                  R"([
+    [1.0,   3.25,  1],
+    [-0.25, 0.125, 2],
+    [null,  null,  3],
+    [-Inf,  Inf,   4],
+    [0.75,  4.0,   null]
+  ])"),
+                    aggregated_and_grouped,
+                    /*verbose=*/true);
 }
 
 TEST(GroupBy, MinMaxScalar) {
@@ -1847,7 +2011,7 @@ TEST(GroupBy, Distinct) {
   CountOptions all(CountOptions::ALL);
   CountOptions only_valid(CountOptions::ONLY_VALID);
   CountOptions only_null(CountOptions::ONLY_NULL);
-  for (bool use_threads : {true, false}) {
+  for (bool use_threads : {false}) {
     SCOPED_TRACE(use_threads ? "parallel/merged" : "serial");
 
     auto table =
