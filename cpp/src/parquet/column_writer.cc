@@ -1039,10 +1039,12 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
                          properties) {
     current_encoder_ = MakeEncoder(DType::type_num, encoding, use_dictionary, descr_,
                                    properties->memory_pool());
+    // We have to dynamic_cast as some compilers don't want to static_cast
+    // through virtual inheritance.
     current_value_encoder_ = dynamic_cast<TypedEncoder<DType>*>(current_encoder_.get());
-    // will be null if not using dictionary, but that's ok
+    // Will be null if not using dictionary, but that's ok
     current_dict_encoder_ = dynamic_cast<DictEncoder<DType>*>(current_encoder_.get());
- 
+
     if (properties->statistics_enabled(descr_->path()) &&
         (SortOrder::UNKNOWN != descr_->sort_order())) {
       page_statistics_ = MakeStatistics<DType>(descr_, allocator_);
@@ -1164,10 +1166,9 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
                          ArrowWriteContext* context, bool maybe_parent_nulls);
 
   void WriteDictionaryPage() override {
-    //current_dict_encoder_ = dynamic_cast<DictEncoder<DType>*>(current_encoder_.get());
     DCHECK(current_dict_encoder_);
-    std::shared_ptr<ResizableBuffer> buffer =
-        AllocateBuffer(properties_->memory_pool(), current_dict_encoder_->dict_encoded_size());
+    std::shared_ptr<ResizableBuffer> buffer = AllocateBuffer(
+        properties_->memory_pool(), current_dict_encoder_->dict_encoded_size());
     current_dict_encoder_->WriteDict(buffer->mutable_data());
 
     DictionaryPage page(buffer, current_dict_encoder_->num_entries(),
@@ -1210,11 +1211,12 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
   using ValueEncoderType = typename EncodingTraits<DType>::Encoder;
   using TypedStats = TypedStatistics<DType>;
   std::unique_ptr<Encoder> current_encoder_;
-  // downcasted observers of current_encoder_. perform the downcast once as opposed
-  // to at every use since dynamic_cast is so expensivea, and static cast
-  // is not available due to virtual inheritance
-  ValueEncoderType * current_value_encoder_;
-  DictEncoder<DType> *  current_dict_encoder_;
+  // Downcasted observers of current_encoder_.
+  // The downcast is performed once as opposed to at every use since
+  // dynamic_cast is so expensive, and static_cast is not available due
+  // to virtual inheritance.
+  ValueEncoderType* current_value_encoder_;
+  DictEncoder<DType>* current_dict_encoder_;
   std::shared_ptr<TypedStats> page_statistics_;
   std::shared_ptr<TypedStats> chunk_statistics_;
 
@@ -1367,7 +1369,7 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
       current_encoder_ = MakeEncoder(DType::type_num, Encoding::PLAIN, false, descr_,
                                      properties_->memory_pool());
       current_value_encoder_ = dynamic_cast<ValueEncoderType*>(current_encoder_.get());
-      current_dict_encoder_ = 0; // not using dict anyway
+      current_dict_encoder_ = nullptr;  // not using dict
       encoding_ = Encoding::PLAIN;
       //std::cout << "fallback" << std::endl;
     }
@@ -1386,14 +1388,13 @@ class TypedColumnWriterImpl : public ColumnWriterImpl, public TypedColumnWriter<
       return;
     }
 
-    //current_dict_encoder_ = dynamic_cast<DictEncoder<DType>*>(current_encoder_.get());
-    if (current_dict_encoder_->dict_encoded_size() >= properties_->dictionary_pagesize_limit()) {
+    if (current_dict_encoder_->dict_encoded_size() >=
+        properties_->dictionary_pagesize_limit()) {
       FallbackToPlainEncoding();
     }
   }
 
   void WriteValues(const T* values, int64_t num_values, int64_t num_nulls) {
-    //current_value_encoder_ = dynamic_cast<ValueEncoderType*>(current_encoder_.get());
     current_value_encoder_->Put(values, static_cast<int>(num_values));
     if (page_statistics_ != nullptr) {
       page_statistics_->Update(values, num_values, num_nulls);

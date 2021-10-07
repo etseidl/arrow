@@ -549,6 +549,9 @@ struct IndexInit {
 
   static Result<std::unique_ptr<KernelState>> Init(KernelContext* ctx,
                                                    const KernelInitArgs& args) {
+    if (!args.options) {
+      return Status::Invalid("Must provide IndexOptions for index kernel");
+    }
     IndexInit visitor(ctx, static_cast<const IndexOptions&>(*args.options),
                       *args.inputs[0].type);
     return visitor.Create();
@@ -604,10 +607,7 @@ void AddMinMaxKernels(KernelInit init,
                       const std::vector<std::shared_ptr<DataType>>& types,
                       ScalarAggregateFunction* func, SimdLevel::type simd_level) {
   for (const auto& ty : types) {
-    // any[T] -> scalar[struct<min: T, max: T>]
-    auto out_ty = struct_({field("min", ty), field("max", ty)});
-    auto sig = KernelSignature::Make({InputType(ty->id())}, ValueDescr::Scalar(out_ty));
-    AddAggKernel(std::move(sig), init, func, simd_level);
+    AddMinMaxKernel(init, ty, func, simd_level);
   }
 }
 
@@ -761,8 +761,12 @@ void RegisterScalarAggregateBasic(FunctionRegistry* registry) {
 
   func = std::make_shared<ScalarAggregateFunction>(
       "min_max", Arity::Unary(), &min_max_doc, &default_scalar_aggregate_options);
-  aggregate::AddMinMaxKernels(aggregate::MinMaxInit, {boolean()}, func.get());
+  aggregate::AddMinMaxKernels(aggregate::MinMaxInit, {null(), boolean()}, func.get());
   aggregate::AddMinMaxKernels(aggregate::MinMaxInit, NumericTypes(), func.get());
+  aggregate::AddMinMaxKernels(aggregate::MinMaxInit, TemporalTypes(), func.get());
+  aggregate::AddMinMaxKernels(aggregate::MinMaxInit, BaseBinaryTypes(), func.get());
+  aggregate::AddMinMaxKernel(aggregate::MinMaxInit, Type::FIXED_SIZE_BINARY, func.get());
+  aggregate::AddMinMaxKernel(aggregate::MinMaxInit, Type::INTERVAL_MONTHS, func.get());
   aggregate::AddMinMaxKernel(aggregate::MinMaxInit, Type::DECIMAL128, func.get());
   aggregate::AddMinMaxKernel(aggregate::MinMaxInit, Type::DECIMAL256, func.get());
   // Add the SIMD variants for min max

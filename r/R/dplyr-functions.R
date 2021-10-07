@@ -694,6 +694,23 @@ nse_funcs$wday <- function(x, label = FALSE, abbr = TRUE, week_start = getOption
 }
 
 nse_funcs$log <- nse_funcs$logb <- function(x, base = exp(1)) {
+  # like other binary functions, either `x` or `base` can be Expression or double(1)
+  if (is.numeric(x) && length(x) == 1) {
+    x <- Expression$scalar(x)
+  } else if (!inherits(x, "Expression")) {
+    arrow_not_supported("x must be a column or a length-1 numeric; other values")
+  }
+
+  # handle `base` differently because we use the simpler ln, log2, and log10
+  # functions for specific scalar base values
+  if (inherits(base, "Expression")) {
+    return(Expression$create("logb_checked", x, base))
+  }
+
+  if (!is.numeric(base) || length(base) != 1) {
+    arrow_not_supported("base must be a column or a length-1 numeric; other values")
+  }
+
   if (base == exp(1)) {
     return(Expression$create("ln_checked", x))
   }
@@ -705,8 +722,8 @@ nse_funcs$log <- nse_funcs$logb <- function(x, base = exp(1)) {
   if (base == 10) {
     return(Expression$create("log10_checked", x))
   }
-  # ARROW-13345
-  arrow_not_supported("`base` values other than exp(1), 2 and 10")
+
+  Expression$create("logb_checked", x, Expression$scalar(base))
 }
 
 nse_funcs$if_else <- function(condition, true, false, missing = NULL) {
@@ -784,44 +801,42 @@ agg_funcs$sum <- function(x, na.rm = FALSE) {
   list(
     fun = "sum",
     data = x,
-    options = list(na.rm = na.rm, na.min_count = 0L)
+    options = list(skip_nulls = na.rm, min_count = 0L)
   )
 }
 agg_funcs$any <- function(x, na.rm = FALSE) {
   list(
     fun = "any",
     data = x,
-    options = list(na.rm = na.rm, na.min_count = 0L)
+    options = list(skip_nulls = na.rm, min_count = 0L)
   )
 }
 agg_funcs$all <- function(x, na.rm = FALSE) {
   list(
     fun = "all",
     data = x,
-    options = list(na.rm = na.rm, na.min_count = 0L)
+    options = list(skip_nulls = na.rm, min_count = 0L)
   )
 }
 agg_funcs$mean <- function(x, na.rm = FALSE) {
   list(
     fun = "mean",
     data = x,
-    options = list(na.rm = na.rm, na.min_count = 0L)
+    options = list(skip_nulls = na.rm, min_count = 0L)
   )
 }
-# na.rm not currently passed in due to ARROW-13691
 agg_funcs$sd <- function(x, na.rm = FALSE, ddof = 1) {
   list(
     fun = "stddev",
     data = x,
-    options = list(ddof = ddof)
+    options = list(skip_nulls = na.rm, min_count = 0L, ddof = ddof)
   )
 }
-# na.rm not currently passed in due to ARROW-13691
 agg_funcs$var <- function(x, na.rm = FALSE, ddof = 1) {
   list(
     fun = "variance",
     data = x,
-    options = list(ddof = ddof)
+    options = list(skip_nulls = na.rm, min_count = 0L, ddof = ddof)
   )
 }
 
@@ -839,4 +854,19 @@ agg_funcs$n <- function() {
     data = Expression$scalar(1L),
     options = list()
   )
+}
+
+output_type <- function(fun, input_type) {
+  # These are quick and dirty heuristics.
+  if (fun %in% c("any", "all")) {
+    bool()
+  } else if (fun %in% "sum") {
+    # It may upcast to a bigger type but this is close enough
+    input_type
+  } else if (fun %in% c("mean", "stddev", "variance")) {
+    float64()
+  } else {
+    # Just so things don't error, assume the resulting type is the same
+    input_type
+  }
 }
