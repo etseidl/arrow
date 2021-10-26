@@ -1248,3 +1248,151 @@ test_that("str_sub", {
     "`end` must be length 1 - other lengths are not supported in Arrow"
   )
 })
+
+test_that("str_starts, str_ends, startsWith, endsWith", {
+  df <- tibble(x = c("Foo", "bar", "baz", "qux"))
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_starts(x, "b.*")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_starts(x, "b.*", negate = TRUE)) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_starts(x, fixed("b.*"))) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_starts(x, fixed("b"))) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_ends(x, "r")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_ends(x, "r", negate = TRUE)) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_ends(x, fixed("r$"))) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(str_ends(x, fixed("r"))) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(startsWith(x, "b")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(endsWith(x, "r")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(startsWith(x, "b.*")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      filter(endsWith(x, "r$")) %>%
+      collect(),
+    df
+  )
+})
+
+test_that("str_count", {
+  df <- tibble(
+    cities = c("Kolkata", "Dar es Salaam", "Tel Aviv", "San Antonio", "Cluj Napoca", "Bern", "Bogota"),
+    dots = c("a.", "...", ".a.a", "a..a.", "ab...", "dse....", ".f..d..")
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(a_count = str_count(cities, pattern = "a")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(p_count = str_count(cities, pattern = "d")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(p_count = str_count(cities,
+        pattern = regex("d", ignore_case = TRUE)
+      )) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(e_count = str_count(cities, pattern = "u")) %>%
+      collect(),
+    df
+  )
+
+  # nse_funcs$str_count() is not vectorised over pattern
+  expect_dplyr_equal(
+    input %>%
+      mutate(let_count = str_count(cities, pattern = c("a", "b", "e", "g", "p", "n", "s"))) %>%
+      collect(),
+    df,
+    warning = TRUE
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(dots_count = str_count(dots, ".")) %>%
+      collect(),
+    df
+  )
+
+  expect_dplyr_equal(
+    input %>%
+      mutate(dots_count = str_count(dots, fixed("."))) %>%
+      collect(),
+    df
+  )
+})
